@@ -40,14 +40,12 @@ export default function RootLayout({
                   always renders as "Sign In". Once a real session lookup
                   exists, swap this for a conditional Sign In / Sign Out
                   button based on session state. */}
-              <button
-                type="button"
-                disabled
-                title="Sign in is not wired up yet"
-                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Sign In
-              </button>
+              <Link
+  href="/auth/signin"
+  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+>
+  Sign In
+</Link>
             </nav>
 
             {/* Mobile hamburger toggle — pure CSS (checkbox hack), so the
@@ -80,14 +78,12 @@ export default function RootLayout({
               >
                 Today
               </Link>
-              <button
-                type="button"
-                disabled
-                title="Sign in is not wired up yet"
-                className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-left text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Sign In
-              </button>
+             <Link
+  href="/auth/signin"
+  className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+>
+  Sign In
+</Link>
             </nav>
           </div>
         </header>
