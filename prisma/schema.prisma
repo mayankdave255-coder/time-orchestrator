@@ -1,0 +1,230 @@
+// Prisma schema for Time Orchestrator
+// Provider: SQLite for local dev. Swap to "postgresql" + a PostgreSQL
+// DATABASE_URL when ready for production — models below are written to be
+// provider-agnostic (no SQLite-only types used).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- NextAuth.js v5 required models ----------
+// https://authjs.dev/getting-started/adapters/prisma
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+
+  // Bcrypt hash for credentials-based auth (see src/lib/auth.ts and
+  // src/app/api/auth/register/route.ts). Nullable so a future OAuth-only
+  // provider could create a User row without ever setting one.
+  password String?
+
+  accounts Account[]
+  sessions Session[]
+
+  recurrenceRules RecurrenceRule[]
+  manualTodos     ManualTodo[]
+  dayCompletions  DayCompletion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- Domain models ----------
+
+// Defines a recurring task's repeat pattern (e.g. "every weekday").
+// Completing an instance of this rule on a given date must only ever
+// produce/update a DayCompletion row — it must never mutate this model.
+//
+// JSON-as-string fields (daysOfWeek, tags, notifications): SQLite has no
+// native array/JSON column type, and this schema needs to stay
+// PostgreSQL-portable without relying on Postgres-only types (e.g. native
+// arrays), so these are stored as JSON-encoded strings and parsed/
+// stringified in the application layer (see src/lib/recurrence/types.ts
+// for the shapes once decoded). When migrating to PostgreSQL, these could
+// optionally move to a native Json column, but plain String works
+// unchanged on both providers, so there's no requirement to do so.
+model RecurrenceRule {
+  id     String @id @default(cuid())
+  userId String
+
+  title       String
+  description String?
+
+  // 24-hour "HH:mm", local to `timezone`.
+  startTime String
+  endTime   String
+  // IANA timezone identifier, e.g. "America/New_York".
+  timezone  String
+
+  // 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'custom'
+  recurrenceType String
+  // Step size between occurrences (e.g. every N days/weeks/months).
+  interval       Int    @default(1)
+
+  // JSON-encoded array of weekday numbers, 0 = Sunday ... 6 = Saturday.
+  // e.g. "[0,2,4]". Null when not applicable to this recurrenceType.
+  daysOfWeek String?
+  // Day of month (1-31). Only used when recurrenceType === 'custom' and
+  // intervalType === 'months'.
+  dayOfMonth Int?
+  // 'days' | 'weeks' | 'months'. Only used when recurrenceType === 'custom'.
+  intervalType String?
+
+  // "YYYY-MM-DD" — first possible date for this rule.
+  startDate String
+  // "YYYY-MM-DD" — last possible date for this rule, inclusive. Null = open-ended.
+  endDate   String?
+  // Hard cap on number of generated occurrences, if set.
+  maxOccurrences Int?
+
+  // JSON-encoded string array, e.g. "[\"work\",\"health\"]". No UI yet.
+  tags String?
+  // JSON-encoded array of { type, offsetMinutes }. Reserved for future
+  // reminder scheduling — no notification logic is implemented yet.
+  notifications String?
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exceptions Exception[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// A per-date override for a RecurrenceRule. Outranks manual todos and
+// unmodified recurring instances in the conflict priority order
+// (Exception override > Pinned manual todo > Standard manual todo >
+// Unmodified recurring instance).
+model Exception {
+  id     String @id @default(cuid())
+  ruleId String
+
+  // "YYYY-MM-DD" — the occurrence date this exception applies to.
+  originalDate String
+
+  // JSON-encoded object of { title?, startTime?, endTime? }. Only the
+  // fields actually present should be treated as overrides — see
+  // applyExceptions in src/lib/recurrence/exceptions.ts.
+  overrides String?
+  cancelled Boolean @default(false)
+
+  // Manual reorder position among same-date items, if the user drags this
+  // exception's occurrence to a different position.
+  position Int?
+
+  rule RecurrenceRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // A rule can have at most one exception per date — re-editing the same
+  // date should update the existing row, not create a second one.
+  @@unique([ruleId, originalDate])
+}
+
+// A manually created todo (as opposed to a recurring instance). May be
+// "pinned" to outrank standard manual todos in the conflict priority order.
+model ManualTodo {
+  id     String @id @default(cuid())
+  userId String
+
+  title       String
+  description String?
+
+  // "YYYY-MM-DD" — the date this todo is scheduled on.
+  date String
+
+  // 24-hour "HH:mm". Nullable: a todo may have no specific time block yet.
+  startTime String?
+  endTime   String?
+
+  // Pinned todos outrank standard manual todos in the conflict priority
+  // order (but still rank below Exception overrides).
+  isPinned Boolean @default(false)
+  // Manual reorder position among same-date items.
+  position Int?
+
+  // JSON-encoded string array, e.g. "[\"errand\"]". No UI yet.
+  tags String?
+  // JSON-encoded array of { type, offsetMinutes }. Reserved for future
+  // reminder scheduling — no notification logic is implemented yet.
+  notifications String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, date])
+}
+
+// Records that a specific recurring task or manual todo was completed on a
+// specific date, without ever altering the RecurrenceRule/ManualTodo itself.
+model DayCompletion {
+  id     String @id @default(cuid())
+  userId String
+
+  // "YYYY-MM-DD" — the date being marked complete.
+  date String
+
+  // 'recurrence' | 'manual' — which kind of item sourceId refers to.
+  sourceType String
+  // The id of the RecurrenceRule or ManualTodo this completion is for.
+  // Not a Prisma relation (no single target model), since sourceType
+  // determines which table sourceId actually points into.
+  sourceId String
+
+  completedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Completing the same source on the same date twice should update the
+  // existing row (or be a no-op), not create duplicates.
+  @@unique([userId, date, sourceType, sourceId])
+}

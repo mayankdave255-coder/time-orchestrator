@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Full-screen dimmed backdrop behind modals (e.g. OverrideModal). Pair
+     with a centered, clickable-through-to-close wrapper in the component
+     itself; this class only handles the dim + blur. */
+  .modal-backdrop {
+    @apply fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px];
+  }
+
+  /* Conflict-state colors for timeline items, kept here so every place
+     that renders a conflicting/overlapping item (badges, left-border
+     accents, backgrounds) pulls from the same palette instead of each
+     component re-picking shades of red. */
+  .conflict-border {
+    @apply border-l-4 border-l-red-500;
+  }
+
+  .conflict-badge {
+    @apply bg-red-100 text-red-700;
+  }
+
+  .conflict-bg {
+    @apply bg-red-50;
+  }
+
+  /* Drop-target highlight for drag-and-drop reordering (@dnd-kit). Apply
+     to a draggable/droppable item's wrapper while it's the active drop
+     target, e.g. via `isOver && "drag-over"` from useDroppable/useSortable. */
+  .drag-over {
+    @apply rounded-md border-2 border-dashed border-slate-400 bg-slate-100;
+  }
+}
